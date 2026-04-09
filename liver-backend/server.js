@@ -1,0 +1,261 @@
+require("dotenv").config({ path: "./.env" });
+
+const multer = require("multer");   
+const express = require("express");
+const cors = require("cors");
+const { PythonShell } = require("python-shell");
+const path = require("path");
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+console.log("=================================");
+console.log("Starting server...");
+console.log("Node version:", process.version);
+console.log("GROQ_API_KEY present:", !!process.env.GROQ_API_KEY);
+console.log("=================================");
+
+app.get("/test", (req, res) => {
+  console.log("Test route hit");
+  res.send("TEST OK");
+});
+
+app.post("/chat", async (req, res) => {
+  console.log("\n=== NEW REQUEST ===");
+  console.log("Message:", req.body.message);
+  
+  try {
+    const userMessage = req.body.message;
+
+    if (!userMessage) {
+      console.log("No message provided");
+      return res.json({ reply: "No message provided" });
+    }
+
+    if (!process.env.GROQ_API_KEY) {
+      console.log("No API key found");
+      return res.json({ reply: "API key not configured" });
+    }
+
+    console.log("Calling Groq API...");
+    
+    const requestBody = {
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful AI Liver Health Assistant. Provide clear, supportive health information."
+        },
+        {
+          role: "user",
+          content: userMessage
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 1000
+    };
+
+    console.log("Request body prepared");
+
+    const response = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(requestBody)
+      }
+    );
+
+    console.log("Groq response status:", response.status);
+    console.log("Groq response ok:", response.ok);
+    
+    const data = await response.json();
+    console.log("Response data keys:", Object.keys(data));
+
+    if (!response.ok) {
+      console.error("Groq API Error Response:", JSON.stringify(data, null, 2));
+      const errorMsg = data.error?.message || data.message || "Unknown API error";
+      return res.json({ reply: `Groq API Error: ${errorMsg}` });
+    }
+
+    if (!data.choices || !data.choices[0]) {
+      console.error("Invalid response structure:", JSON.stringify(data, null, 2));
+      return res.json({ reply: "Invalid response from AI" });
+    }
+
+    const reply = data.choices[0].message.content;
+    console.log("Reply length:", reply.length);
+    console.log("Sending reply to client");
+    
+    res.json({ reply });
+
+  } catch (error) {
+    console.error("\n!!! SERVER ERROR !!!");
+    console.error("Error type:", error.constructor.name);
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+    res.json({ reply: "Server Error: " + error.message });
+  }
+  
+  console.log("=== END REQUEST ===\n");
+});
+
+const { spawn } = require("child_process");
+app.post("/predict", (req, res) => {
+
+  console.log("=== PREDICTION REQUEST ===");
+
+  const python = spawn("python", [
+    path.join(__dirname, "predict.py"),
+    JSON.stringify(req.body)
+  ]);
+
+  let output = "";
+
+  python.stdout.on("data", (data) => {
+    output += data.toString();
+  });
+
+  python.stderr.on("data", (data) => {
+    console.error("Python error:", data.toString());
+  });
+
+  python.on("close", () => {
+
+    console.log("Prediction output:", output);
+
+    const result = output.trim();
+
+    let message = "";
+
+    if (result === "0") {
+      message = "Healthy Liver";
+    } else if (result === "1") {
+      message = "Risk of Liver Disease";
+    } else {
+      message = "Prediction Error";
+    }
+
+    res.json({
+      prediction: message
+    });
+
+  });
+
+});
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files are allowed"), false);
+  },
+});
+
+app.post("/analyze-image", upload.single("image"), async (req, res) => {
+  console.log("\n=== IMAGE ANALYSIS REQUEST ===");
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image provided" });
+    }
+
+    const analysisType = req.body.type || "jaundice";
+    const base64Image = req.file.buffer.toString("base64");
+    const mimeType = req.file.mimetype;
+
+    const prompts = {
+      jaundice: `You are an AI medical screening assistant. Analyze this image for visual signs of jaundice. Look for yellow tint in skin or eyes. Respond in this exact JSON format only (no markdown, no extra text):
+{"detected": true or false, "confidence": "Low" | "Medium" | "High", "riskLevel": "None" | "Mild" | "Moderate" | "Severe", "findings": ["finding 1", "finding 2"], "recommendation": "brief recommendation", "disclaimer": "This is a screening tool only. Consult a doctor for diagnosis."}`,
+
+      facial: `You are an AI medical screening assistant. Analyze this facial image for signs of liver or metabolic health concerns like pallor, puffiness, or discoloration. Respond in this exact JSON format only (no markdown, no extra text):
+{"detected": true or false, "confidence": "Low" | "Medium" | "High", "riskLevel": "None" | "Mild" | "Moderate" | "Severe", "findings": ["finding 1", "finding 2"], "recommendation": "brief recommendation", "disclaimer": "This is a screening tool only. Consult a doctor for diagnosis."}`,
+
+      palm: `You are an AI medical screening assistant. Analyze this palm image for palmar erythema or other liver health indicators. Respond in this exact JSON format only (no markdown, no extra text):
+{"detected": true or false, "confidence": "Low" | "Medium" | "High", "riskLevel": "None" | "Mild" | "Moderate" | "Severe", "findings": ["finding 1", "finding 2"], "recommendation": "brief recommendation", "disclaimer": "This is a screening tool only. Consult a doctor for diagnosis."}`,
+    };
+
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: { url: `data:${mimeType};base64,${base64Image}` },
+              },
+              {
+                type: "text",
+                text: prompts[analysisType] || prompts.jaundice,
+              },
+            ],
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 500,
+      }),
+    });
+
+    if (!response.ok) {
+      const errData = await response.json();
+      return res.status(500).json({ error: "Vision API error: " + (errData.error?.message || "Unknown error") });
+    }
+
+    const data = await response.json();
+    const rawText = data.choices[0].message.content.trim();
+    console.log("Raw vision response:", rawText);
+
+    let parsed;
+    try {
+      const clean = rawText.replace(/```json|```/g, "").trim();
+      parsed = JSON.parse(clean);
+    } catch (e) {
+      parsed = {
+        detected: false,
+        confidence: "Low",
+        riskLevel: "None",
+        findings: ["Unable to parse AI response. Please try a clearer image."],
+        recommendation: "Please upload a well-lit, clear image and try again.",
+        disclaimer: "This is a screening tool only. Consult a doctor for diagnosis.",
+      };
+    }
+
+    res.json({ result: parsed, analysisType });
+
+  } catch (error) {
+    console.error("Image analysis error:", error.message);
+    res.status(500).json({ error: "Server error: " + error.message });
+  }
+  console.log("=== END IMAGE ANALYSIS ===\n");
+});
+const PORT = 3001;
+
+app.listen(PORT, () => {
+  console.log(`\n✓ Server successfully started on port ${PORT}`);
+  console.log(`✓ Test: http://localhost:${PORT}/test`);
+  console.log(`✓ Chat: http://localhost:${PORT}/chat`);
+  console.log("\nServer is ready and waiting for requests...\n");
+}).on('error', (err) => {
+  console.error("Server failed to start:", err);
+  process.exit(1);
+});
+
+// Handle uncaught errors
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled Rejection:', err);
+});
