@@ -3,8 +3,7 @@ require("dotenv").config({ path: "./.env" });
 const multer = require("multer");   
 const express = require("express");
 const cors = require("cors");
-const { PythonShell } = require("python-shell");
-const path = require("path");
+
 
 const app = express();
 app.use(cors());
@@ -104,49 +103,33 @@ app.post("/chat", async (req, res) => {
   console.log("=== END REQUEST ===\n");
 });
 
-const { spawn } = require("child_process");
 app.post("/predict", (req, res) => {
-
   console.log("=== PREDICTION REQUEST ===");
+  try {
+    const {
+      Total_Bilirubin, Direct_Bilirubin,
+      Alkaline_Phosphotase, SGPT_ALT, SGOT_AST,
+      Albumin, Albumin_Globulin_Ratio, Age
+    } = req.body;
 
-  const python = spawn("python", [
-    path.join(__dirname, "predict.py"),
-    JSON.stringify(req.body)
-  ]);
+    let riskScore = 0;
+    if (Total_Bilirubin > 1.2) riskScore += 2;
+    if (Direct_Bilirubin > 0.4) riskScore += 2;
+    if (Alkaline_Phosphotase > 290) riskScore += 1;
+    if (SGPT_ALT > 56) riskScore += 1;
+    if (SGOT_AST > 40) riskScore += 1;
+    if (Albumin < 3.5) riskScore += 2;
+    if (Albumin_Globulin_Ratio < 0.9) riskScore += 1;
+    if (Age > 50) riskScore += 1;
 
-  let output = "";
-
-  python.stdout.on("data", (data) => {
-    output += data.toString();
-  });
-
-  python.stderr.on("data", (data) => {
-    console.error("Python error:", data.toString());
-  });
-
-  python.on("close", () => {
-
-    console.log("Prediction output:", output);
-
-    const result = output.trim();
-
-    let message = "";
-
-    if (result === "0") {
-      message = "Healthy Liver";
-    } else if (result === "1") {
-      message = "Risk of Liver Disease";
-    } else {
-      message = "Prediction Error";
-    }
-
-    res.json({
-      prediction: message
-    });
-
-  });
-
+    const prediction = riskScore >= 4 ? "Risk of Liver Disease" : "Healthy Liver";
+    res.json({ prediction });
+  } catch (error) {
+    console.error("Prediction error:", error.message);
+    res.json({ prediction: "Prediction Error" });
+  }
 });
+
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
