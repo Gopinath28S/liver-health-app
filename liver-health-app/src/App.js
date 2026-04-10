@@ -87,7 +87,7 @@ function App() {
 
   const callClaudeAPI = async (promptText) => {
     try {
-      const response = await fetch("http://172.20.10.2:3001/chat", {
+      const response = await fetch("https://liver-health-app.onrender.com/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: promptText })
@@ -102,7 +102,7 @@ function App() {
   };
 
   const callPredictionAPI = async () => {
-    const response = await fetch("http://172.20.10.2:3001/predict", {
+    const response = await fetch("https://liver-health-app.onrender.com/predict", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

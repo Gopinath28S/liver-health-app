@@ -165,7 +165,7 @@ export default function VisualAnalysis() {
       const formData = new FormData();
       formData.append("image", file);
       formData.append("type", activeType);
-      const response = await fetch("http://localhost:3001/analyze-image", {
+      const response = await fetch("https://liver-health-app.onrender.com/analyze-image", {
         method: "POST",
         body: formData,
       });
