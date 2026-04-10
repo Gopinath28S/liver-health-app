@@ -239,7 +239,7 @@ app.post("/analyze-image", upload.single("image"), async (req, res) => {
   }
   console.log("=== END IMAGE ANALYSIS ===\n");
 });
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 app.listen(PORT, () => {
   console.log(`\n✓ Server successfully started on port ${PORT}`);
